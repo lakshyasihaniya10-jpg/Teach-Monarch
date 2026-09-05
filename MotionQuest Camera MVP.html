@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<!-- saved from url=(0047)file:///C:/mnt/data/motionquest_camera_mvp.html -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MotionQuest Camera MVP</title>
+  <script src="./MotionQuest Camera MVP_files/tfjs@4.20.0"></script>
+  <script src="./MotionQuest Camera MVP_files/pose-detection@2.1.3"></script>
+  <style>
+    :root { --bg:#071426; --panel:#0d2038; --cyan:#45d6e8; --purple:#7b4dff; --pink:#ff4d8d; --text:#f4fbff; --muted:#9db6c9; --good:#56e39f; --warn:#ffc857; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; color:var(--text); background:radial-gradient(circle at 50% 0,#14355d 0,#071426 48%,#040b16 100%); font:15px/1.4 Inter,system-ui,sans-serif; }
+    .app { width:min(1000px,100%); margin:auto; padding:18px; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
+    .eyebrow { color:var(--cyan); font-size:11px; font-weight:800; letter-spacing:.15em; }
+    h1 { margin:5px 0 0; font-size:clamp(26px,5vw,42px); letter-spacing:-.04em; }
+    .badge { padding:8px 12px; border:1px solid #31516b; border-radius:999px; color:var(--muted); background:#0a1b30; white-space:nowrap; }
+    .layout { display:grid; grid-template-columns:minmax(0,1.7fr) minmax(260px,.8fr); gap:16px; }
+    .card { border:1px solid #284560; border-radius:22px; padding:16px; background:linear-gradient(145deg,rgba(13,32,56,.92),rgba(8,19,37,.84)); box-shadow:0 18px 55px #0004; }
+    .stage { position:relative; overflow:hidden; aspect-ratio:4/3; border-radius:16px; background:#020811; }
+    video, #overlay { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); }
+    #overlay { pointer-events:none; }
+    .stage-message { position:absolute; inset:0; display:grid; place-items:center; padding:20px; text-align:center; color:var(--muted); pointer-events:none; }
+    .controls { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+    button, select { border:0; border-radius:12px; padding:11px 14px; color:#061425; background:var(--cyan); font:inherit; font-weight:800; cursor:pointer; }
+    button.secondary, select { color:var(--text); background:#193451; }
+    button:disabled { cursor:not-allowed; opacity:.5; }
+    .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:12px 0; }
+    .stat { padding:12px; border-radius:14px; background:#102b48; }
+    .stat small { display:block; color:var(--muted); font-size:11px; }
+    .stat strong { display:block; margin-top:3px; font-size:25px; }
+    .feedback { min-height:48px; padding:12px; border-radius:14px; color:var(--good); background:#123528; }
+    .feedback.warn { color:var(--warn); background:#392e15; }
+    h2 { margin:0 0 10px; font-size:17px; }
+    .quest { margin-top:14px; padding:14px; border-radius:15px; background:linear-gradient(110deg,#123b55,#261c56); }
+    .quest strong { display:block; margin-bottom:4px; }
+    .muted { color:var(--muted); }
+    .progress { height:8px; margin-top:12px; overflow:hidden; border-radius:99px; background:#ffffff1a; }
+    .progress i { display:block; width:0%; height:100%; border-radius:inherit; background:linear-gradient(90deg,var(--cyan),var(--purple),var(--pink)); transition:width .25s; }
+    .notice { margin-top:12px; color:var(--muted); font-size:12px; }
+    @media (max-width:760px) { .layout { grid-template-columns:1fr; } header { align-items:flex-start; flex-direction:column; } }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div><div class="eyebrow">MOTIONQUEST / CAMERA MVP</div><h1>Movement Quest</h1></div>
+      <div class="badge" id="modelStatus">Model idle</div>
+    </header>
+    <div class="layout">
+      <section class="card">
+        <div class="stage">
+          <video id="camera" autoplay="" muted="" playsinline=""></video>
+          <canvas id="overlay"></canvas>
+          <div class="stage-message" id="message">Choose an exercise and press Start Camera.</div>
+        </div>
+        <div class="controls">
+          <select id="exercise" aria-label="Exercise">
+            <option value="squat">Squat</option>
+            <option value="pushup">Push-up</option>
+            <option value="plank">Plank</option>
+          </select>
+          <button id="start">Start Camera</button>
+          <button id="stop" class="secondary" disabled="">Stop</button>
+        </div>
+        <div class="notice">Camera frames are processed in this browser. This MVP does not upload or store video.</div>
+      </section>
+      <aside class="card">
+        <h2 id="questTitle">Squat Awakening</h2>
+        <div class="muted" id="questDescription">Complete 10 controlled squats with stable form.</div>
+        <div class="quest"><strong>Daily Quest</strong><span id="questProgress">0 / 10 reps</span><div class="progress"><i id="progress" style="width: 0%;"></i></div></div>
+        <div class="stats">
+          <div class="stat"><small>REPS</small><strong id="reps">0</strong></div>
+          <div class="stat"><small>XP</small><strong id="xp">0</strong></div>
+          <div class="stat"><small>FORM</small><strong id="form">--</strong></div>
+        </div>
+        <div class="feedback" id="feedback">Stand where your full body is visible.</div>
+      </aside>
+    </div>
+  </main>
+  <script>
+    const camera = document.querySelector("#camera");
+    const overlay = document.querySelector("#overlay");
+    const ctx = overlay.getContext("2d");
+    const exercise = document.querySelector("#exercise");
+    const start = document.querySelector("#start");
+    const stop = document.querySelector("#stop");
+    const message = document.querySelector("#message");
+    const modelStatus = document.querySelector("#modelStatus");
+    const feedback = document.querySelector("#feedback");
+    const repsEl = document.querySelector("#reps");
+    const xpEl = document.querySelector("#xp");
+    const formEl = document.querySelector("#form");
+    const questTitle = document.querySelector("#questTitle");
+    const questDescription = document.querySelector("#questDescription");
+    const questProgress = document.querySelector("#questProgress");
+    const progress = document.querySelector("#progress");
+    const descriptions = {
+      squat: ["Squat Awakening", "Complete 10 controlled squats with stable form."],
+      pushup: ["Ground Strike", "Complete 10 push-ups while keeping your body aligned."],
+      plank: ["Core Shield", "Hold a stable plank for 20 seconds."]
+    };
+    let detector, stream, running = false, lastState = "up", reps = 0, xp = 0, goodFrames = 0, totalFrames = 0;
+    let plankStarted = 0, plankSeconds = 0;
+
+    function setExerciseText() {
+      const [title, desc] = descriptions[exercise.value];
+      questTitle.textContent = title; questDescription.textContent = desc;
+      resetSession();
+    }
+    function resetSession() {
+      reps = 0; xp = 0; goodFrames = 0; totalFrames = 0; plankStarted = 0; plankSeconds = 0; lastState = "up";
+      updateStats();
+    }
+    function updateStats() {
+      repsEl.textContent = reps;
+      xpEl.textContent = xp;
+      const target = exercise.value === "plank" ? 20 : 10;
+      const value = exercise.value === "plank" ? plankSeconds : reps;
+      questProgress.textContent = `${Math.min(value, target)} / ${target} ${exercise.value === "plank" ? "seconds" : "reps"}`;
+      progress.style.width = `${Math.min(value / target * 100, 100)}%`;
+      formEl.textContent = totalFrames ? `${Math.round(goodFrames / totalFrames * 100)}%` : "--";
+    }
+    function angle(a, b, c) {
+      const ab = { x:a.x-b.x, y:a.y-b.y }, cb = { x:c.x-b.x, y:c.y-b.y };
+      return Math.round(Math.acos(Math.max(-1, Math.min(1, (ab.x*cb.x+ab.y*cb.y)/(Math.hypot(ab.x,ab.y)*Math.hypot(cb.x,cb.y)))))*180/Math.PI);
+    }
+    function point(pose, name) {
+      const names = { leftShoulder:5, rightShoulder:6, leftElbow:7, rightElbow:8, leftWrist:9, rightWrist:10, leftHip:11, rightHip:12, leftKnee:13, rightKnee:14, leftAnkle:15, rightAnkle:16 };
+      return pose.keypoints[names[name]];
+    }
+    function visible(points) { return points && points.every(p => p && (p.score || 0) > .45); }
+    function drawPose(pose) {
+      const width = overlay.clientWidth, height = overlay.clientHeight;
+      const sourceWidth = camera.videoWidth || width;
+      const sourceHeight = camera.videoHeight || height;
+      overlay.width = width; overlay.height = height; ctx.clearRect(0,0,width,height);
+      ctx.fillStyle = "#45d6e8"; ctx.strokeStyle = "#45d6e8"; ctx.lineWidth = 3;
+      const links = [[5,7],[7,9],[6,8],[8,10],[5,6],[5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16]];
+      const x = value => value / sourceWidth * width;
+      const y = value => value / sourceHeight * height;
+      links.forEach(([a,b]) => { const p=pose.keypoints[a], q=pose.keypoints[b]; if ((p.score||0)>.35&&(q.score||0)>.35) { ctx.beginPath(); ctx.moveTo(x(p.x),y(p.y)); ctx.lineTo(x(q.x),y(q.y)); ctx.stroke(); }});
+      pose.keypoints.forEach(p => { if ((p.score||0)>.35) { ctx.beginPath(); ctx.arc(x(p.x),y(p.y),5,0,Math.PI*2); ctx.fill(); }});
+    }
+    function processPose(pose) {
+      drawPose(pose);
+      const needed = exercise.value === "squat"
+        ? [point(pose,"leftHip"),point(pose,"leftKnee"),point(pose,"leftAnkle"),point(pose,"rightHip"),point(pose,"rightKnee"),point(pose,"rightAnkle")]
+        : [point(pose,"leftShoulder"),point(pose,"leftElbow"),point(pose,"leftWrist"),point(pose,"leftHip"),point(pose,"leftAnkle")];
+      if (!visible(needed)) { feedback.textContent = "Move back so your body is fully visible."; feedback.className = "feedback warn"; return; }
+      totalFrames++;
+      if (exercise.value === "squat") {
+        const left = angle(needed[0],needed[1],needed[2]), right = angle(needed[3],needed[4],needed[5]), knee=(left+right)/2;
+        const good = knee > 65 && knee < 180;
+        if (good) goodFrames++;
+        if (knee < 105) lastState = "down";
+        if (knee > 155 && lastState === "down") { reps++; xp += 10; lastState = "up"; }
+        feedback.textContent = good ? "Good form — keep your chest steady." : "Keep knees aligned and move with control.";
+        feedback.className = good ? "feedback" : "feedback warn";
+      } else if (exercise.value === "pushup") {
+        const body = angle(needed[0],needed[3],needed[4]), elbow = angle(needed[0],needed[1],needed[2]), good = body > 145 && body < 205;
+        if (good) goodFrames++;
+        if (elbow < 100) lastState = "down";
+        if (elbow > 155 && lastState === "down") { reps++; xp += 10; lastState = "up"; }
+        feedback.textContent = good ? "Strong alignment — control the next rep." : "Keep your body in one straight line.";
+        feedback.className = good ? "feedback" : "feedback warn";
+      } else {
+        const body = angle(needed[0],needed[3],needed[4]), good = body > 155 && body < 205;
+        if (good) { goodFrames++; if (!plankStarted) plankStarted = performance.now(); plankSeconds = Math.floor((performance.now()-plankStarted)/1000); xp = plankSeconds * 2; }
+        else { plankStarted = 0; feedback.textContent = "Align shoulders, hips, and ankles."; feedback.className = "feedback warn"; }
+        if (good) { feedback.textContent = "Core shield active — hold steady."; feedback.className = "feedback"; }
+      }
+      updateStats();
+    }
+    async function loop() {
+      if (!running) return;
+      const poses = await detector.estimatePoses(camera, { flipHorizontal: false });
+      if (poses[0]) processPose(poses[0]);
+      requestAnimationFrame(loop);
+    }
+    async function startCamera() {
+      start.disabled = true; message.style.display = "none"; modelStatus.textContent = "Loading model…";
+      try {
+        await tf.ready();
+        detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING });
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 720 }, height: { ideal: 540 } }, audio: false });
+        camera.srcObject = stream; await camera.play(); running = true; stop.disabled = false; modelStatus.textContent = "Camera tracking live"; loop();
+      } catch (error) {
+        start.disabled = false; modelStatus.textContent = "Setup error"; message.style.display = "grid"; message.textContent = "Camera permission or model loading failed. Use HTTPS/localhost and allow camera access.";
+        console.error(error);
+      }
+    }
+    function stopCamera() {
+      running = false; if (stream) stream.getTracks().forEach(track => track.stop()); camera.srcObject = null; stop.disabled = true; start.disabled = false; modelStatus.textContent = "Model idle"; message.style.display = "grid"; message.textContent = "Choose an exercise and press Start Camera.";
+    }
+    exercise.addEventListener("change", setExerciseText); start.addEventListener("click", startCamera); stop.addEventListener("click", stopCamera);
+    setExerciseText();
+  </script>
+
+
+</body></html>
